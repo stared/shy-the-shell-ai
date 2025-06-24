@@ -171,7 +171,9 @@ impl ShyRepl {
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        println!("{}", style("Shy - SHell AI Assistant").bold().fg(Color::Cyan));
+        println!("{} {}", 
+            style("Shy - SHell AI Assistant").bold().fg(Color::Cyan),
+            style(format!("(using {})", self.config.default_model)).fg(Color::Yellow));
         println!("{}", style("Don't be shy, just ask your shell. Type /help for commands").dim());
         println!();
 
