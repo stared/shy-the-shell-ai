@@ -19,7 +19,7 @@ impl OpenRouterClient {
         }
     }
 
-    pub async fn stream_chat(&self, message: &str) -> Result<()> {
+    pub async fn stream_chat(&self, message: &str) -> Result<String> {
         let payload = json!({
             "model": self.model,
             "messages": [
@@ -47,6 +47,7 @@ impl OpenRouterClient {
 
         let mut stream = response.bytes_stream();
         let mut first_token = true;
+        let mut full_response = String::new();
 
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
@@ -70,6 +71,7 @@ impl OpenRouterClient {
                                             first_token = false;
                                         }
                                         print!("{}", content);
+                                        full_response.push_str(content);
                                         io::stdout().flush()?;
                                     }
                                 }
@@ -81,6 +83,7 @@ impl OpenRouterClient {
         }
 
         println!("\n");
-        Ok(())
+        
+        Ok(full_response)
     }
 }

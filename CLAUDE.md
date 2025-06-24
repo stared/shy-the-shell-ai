@@ -19,6 +19,12 @@ A Rust CLI tool that provides an AI-powered shell assistant with interactive set
 - `cargo clippy` - Lint code
 - `cargo fmt` - Format code
 
+## Development
+After making changes, always compile to test:
+```bash
+cargo build --release
+```
+
 ## Dependencies
 - `clap` - CLI argument parsing and completions
 - `dialoguer` - Interactive prompts

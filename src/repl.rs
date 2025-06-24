@@ -1,20 +1,165 @@
 use anyhow::Result;
-use reedline::{DefaultPrompt, Reedline, Signal};
+use reedline::{Reedline, Signal, Completer, Suggestion, ColumnarMenu, ReedlineMenu, EditCommand, ReedlineEvent, KeyCode, KeyModifiers, Emacs, Prompt, PromptEditMode, PromptHistorySearch};
 use spinners::{Spinner, Spinners};
+use std::env;
+use std::fs;
+use console::{style, Color};
 use crate::api::OpenRouterClient;
 use crate::config::{Config, AVAILABLE_MODELS};
 
 pub struct ShyRepl {
     line_editor: Reedline,
-    prompt: DefaultPrompt,
+    prompt: ShyPrompt,
     client: OpenRouterClient,
     config: Config,
+    last_suggested_commands: Vec<String>,
 }
+
+#[derive(Clone)]
+struct ShyPrompt;
+
+impl Prompt for ShyPrompt {
+    fn render_prompt_left(&self) -> std::borrow::Cow<str> {
+        "".into()
+    }
+
+    fn render_prompt_right(&self) -> std::borrow::Cow<str> {
+        "".into()
+    }
+
+    fn render_prompt_indicator(&self, _edit_mode: PromptEditMode) -> std::borrow::Cow<str> {
+        "〉".into()
+    }
+
+    fn render_prompt_multiline_indicator(&self) -> std::borrow::Cow<str> {
+        "〉".into()
+    }
+
+    fn render_prompt_history_search_indicator(
+        &self,
+        _history_search: PromptHistorySearch,
+    ) -> std::borrow::Cow<str> {
+        "search: ".into()
+    }
+}
+
+#[derive(Clone)]
+struct ShyCompleter {
+    commands: Vec<CommandInfo>,
+}
+
+#[derive(Clone)]
+struct CommandInfo {
+    name: String,
+    description: String,
+}
+
+impl ShyCompleter {
+    fn new() -> Self {
+        let commands = vec![
+            CommandInfo {
+                name: "/help".to_string(),
+                description: "Show available commands".to_string(),
+            },
+            CommandInfo {
+                name: "/exit".to_string(),
+                description: "Exit the assistant".to_string(),
+            },
+            CommandInfo {
+                name: "/model".to_string(),
+                description: "Change AI model".to_string(),
+            },
+            CommandInfo {
+                name: "/config".to_string(),
+                description: "Show current configuration".to_string(),
+            },
+            CommandInfo {
+                name: "/env".to_string(),
+                description: "Show environment information".to_string(),
+            },
+            CommandInfo {
+                name: "/run".to_string(),
+                description: "Execute a shell command".to_string(),
+            },
+        ];
+        
+        Self { commands }
+    }
+}
+
+impl Completer for ShyCompleter {
+    fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
+        if line.starts_with('/') {
+            self.commands
+                .iter()
+                .filter(|cmd| cmd.name.starts_with(line.trim()))
+                .map(|cmd| Suggestion {
+                    value: cmd.name.clone(),
+                    description: Some(cmd.description.clone()),
+                    extra: None,
+                    span: reedline::Span::new(0, pos),
+                    append_whitespace: true,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        }
+    }
+}
+
 
 impl ShyRepl {
     pub fn new(config: Config) -> Result<Self> {
-        let line_editor = Reedline::create();
-        let prompt = DefaultPrompt::default();
+        let mut line_editor = Reedline::create();
+        
+        // Set up completer with instant menu display
+        let completer = ShyCompleter::new();
+        let completion_menu = Box::new(
+            ColumnarMenu::default()
+                .with_name("completion_menu")
+                .with_columns(1)
+                .with_column_width(Some(80))
+                .with_column_padding(2)
+        );
+        
+        // Configure keybindings to show menu on typing
+        let mut keybindings = reedline::default_emacs_keybindings();
+        
+        // Add keybinding to show completion menu after typing / characters
+        keybindings.add_binding(
+            KeyModifiers::NONE,
+            KeyCode::Char('/'),
+            ReedlineEvent::Multiple(vec![
+                ReedlineEvent::Edit(vec![EditCommand::InsertChar('/')]),
+                ReedlineEvent::Menu("completion_menu".to_string()),
+            ]),
+        );
+        
+        // Don't bind regular letters - only "/" should trigger menu
+        
+        // Tab autocompletes (fills in text)
+        keybindings.add_binding(
+            KeyModifiers::NONE,
+            KeyCode::Tab,
+            ReedlineEvent::UntilFound(vec![
+                ReedlineEvent::Edit(vec![EditCommand::Complete]),
+                ReedlineEvent::Menu("completion_menu".to_string()),
+            ]),
+        );
+        
+        // Let reedline handle Enter naturally:
+        // - In completion menu: selects completion + submits 
+        // - My input handler will execute the completed command
+        
+        
+        line_editor = line_editor
+            .with_completer(Box::new(completer))
+            .with_menu(ReedlineMenu::EngineCompleter(completion_menu))
+            .with_edit_mode(Box::new(Emacs::new(keybindings)))
+            .with_quick_completions(true)
+            .with_partial_completions(true);
+            
+        let prompt = ShyPrompt;
         let client = OpenRouterClient::new(config.api_key.clone(), config.default_model.clone());
 
         Ok(Self {
@@ -22,6 +167,7 @@ impl ShyRepl {
             prompt,
             client,
             config,
+            last_suggested_commands: Vec::new(),
         })
     }
 
@@ -41,6 +187,8 @@ impl ShyRepl {
                         continue;
                     }
 
+                    // All commands starting with / should be executed immediately 
+                    // since they're either typed manually or selected from completion
                     if let Err(e) = self.handle_input(input).await {
                         eprintln!("Error: {}", e);
                     }
@@ -54,6 +202,7 @@ impl ShyRepl {
 
         Ok(())
     }
+    
 
     async fn handle_input(&mut self, input: &str) -> Result<()> {
         if input.starts_with('/') {
@@ -75,6 +224,8 @@ impl ShyRepl {
                 println!("  /exit     - Exit the assistant");
                 println!("  /model    - Change AI model");
                 println!("  /config   - Show current configuration");
+                println!("  /env      - Show environment information");
+                println!("  /run      - Execute a shell command or show suggested commands");
                 println!();
                 println!("Or just type your message to chat with the AI.");
                 println!();
@@ -93,6 +244,27 @@ impl ShyRepl {
                 println!("  Config file: {:?}", Config::config_path()?);
                 println!();
             }
+            "/env" => {
+                self.show_environment();
+            }
+            "/run" => {
+                if parts.len() > 1 {
+                    // Direct command execution
+                    let command = parts[1..].join(" ");
+                    self.execute_command(&command).await?;
+                } else {
+                    // Show interactive menu if we have suggested commands
+                    if !self.last_suggested_commands.is_empty() {
+                        println!();
+                        println!("{}", style("📋 Available Suggested Commands:").bold().fg(Color::Cyan));
+                        self.display_interactive_commands();
+                        self.prompt_command_selection().await?;
+                    } else {
+                        println!("Usage: /run <command>");
+                        println!("Example: /run ls -la");
+                    }
+                }
+            }
             _ => {
                 println!("Unknown command: {}. Type /help for available commands.", cmd);
             }
@@ -101,7 +273,117 @@ impl ShyRepl {
         Ok(())
     }
 
-    async fn handle_chat(&self, message: &str) -> Result<()> {
+    fn show_environment(&self) {
+        println!();
+        println!("Environment Information:");
+        
+        // Current working directory
+        if let Ok(pwd) = env::current_dir() {
+            println!("  Working Directory: {}", pwd.display());
+        }
+        
+        // Shell type
+        if let Ok(shell) = env::var("SHELL") {
+            println!("  Shell: {}", shell);
+        }
+        
+        // List files (capped at 10)
+        println!("  Files in current directory:");
+        if let Ok(entries) = fs::read_dir(".") {
+            let mut files: Vec<_> = entries
+                .filter_map(|entry| entry.ok())
+                .filter_map(|entry| entry.file_name().into_string().ok())
+                .collect();
+            files.sort();
+            
+            let display_count = files.len().min(10);
+            for file in files.iter().take(display_count) {
+                println!("    - {}", file);
+            }
+            
+            if files.len() > 10 {
+                println!("    ... and {} more files", files.len() - 10);
+            }
+        }
+        
+        // System info
+        println!("  OS: {}", env::consts::OS);
+        println!("  Architecture: {}", env::consts::ARCH);
+        println!();
+    }
+
+    async fn execute_command(&self, command: &str) -> Result<()> {
+        use dialoguer::{Confirm, Input};
+        use std::process::Command;
+        
+        let mut current_command = command.to_string();
+        
+        loop {
+            println!();
+            println!("💡 Justification: Executing shell command as requested");
+            println!("🔧 Command: {}", current_command);
+            println!();
+            
+            let should_run = Confirm::new()
+                .with_prompt("Do you want to execute this command?")
+                .default(false)
+                .interact()?;
+                
+            if !should_run {
+                let modify = Confirm::new()
+                    .with_prompt("Would you like to modify the command?")
+                    .default(false)
+                    .interact()?;
+                    
+                if modify {
+                    current_command = Input::new()
+                        .with_prompt("Enter modified command")
+                        .with_initial_text(&current_command)
+                        .interact_text()?;
+                    continue;
+                }
+                
+                println!("Command cancelled.");
+                return Ok(());
+            }
+            
+            break;
+        }
+        
+        println!("Executing: {}", current_command);
+        
+        let output = if cfg!(target_os = "windows") {
+            Command::new("cmd")
+                .args(["/C", &current_command])
+                .output()
+        } else {
+            Command::new("sh")
+                .arg("-c")
+                .arg(&current_command)
+                .output()
+        };
+        
+        match output {
+            Ok(output) => {
+                if !output.stdout.is_empty() {
+                    println!("{}", String::from_utf8_lossy(&output.stdout));
+                }
+                if !output.stderr.is_empty() {
+                    eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+                }
+                if !output.status.success() {
+                    println!("Command exited with status: {}", output.status);
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to execute command: {}", e);
+            }
+        }
+        
+        Ok(())
+    }
+
+    async fn handle_chat(&mut self, message: &str) -> Result<()> {
         let mut spinner = Spinner::new(Spinners::Dots, "Thinking...".into());
         
         tokio::spawn(async move {
@@ -109,9 +391,193 @@ impl ShyRepl {
             spinner.stop();
         });
 
-        self.client.stream_chat(message).await?;
-
+        // Create enriched context with environment info
+        let context = self.create_context(message);
+        let response = self.client.stream_chat(&context).await?;
+        
+        // Extract commands from response for quick execution
+        self.extract_and_store_commands(&response);
+        
+        // Auto-trigger interactive menu if commands were suggested
+        if !self.last_suggested_commands.is_empty() {
+            if let Err(e) = self.prompt_command_selection().await {
+                eprintln!("Error in command selection: {}", e);
+            }
+        }
+        
         Ok(())
+    }
+
+    fn create_context(&self, message: &str) -> String {
+        let mut context = String::new();
+        
+        // Add environment context
+        context.push_str("Environment context:\n");
+        
+        if let Ok(pwd) = env::current_dir() {
+            context.push_str(&format!("Current directory: {}\n", pwd.display()));
+        }
+        
+        if let Ok(shell) = env::var("SHELL") {
+            context.push_str(&format!("Shell: {}\n", shell));
+        }
+        
+        // Add some files for context (limited)
+        if let Ok(entries) = fs::read_dir(".") {
+            let files: Vec<_> = entries
+                .filter_map(|entry| entry.ok())
+                .filter_map(|entry| entry.file_name().into_string().ok())
+                .take(5)
+                .collect();
+            
+            if !files.is_empty() {
+                context.push_str("Files in current directory: ");
+                context.push_str(&files.join(", "));
+                context.push_str("\n");
+            }
+        }
+        
+        context.push_str(&format!("OS: {}\n", env::consts::OS));
+        context.push_str("\n");
+        context.push_str("Instructions: You are a shell assistant. When suggesting commands, provide:\n");
+        context.push_str("1. Brief justification for the command\n");
+        context.push_str("2. The exact command to run\n");
+        context.push_str("3. Consider the current environment context\n\n");
+        context.push_str("User request: ");
+        context.push_str(message);
+        
+        context
+    }
+    
+    fn extract_and_store_commands(&mut self, response: &str) {
+        use regex::Regex;
+        
+        let mut commands = Vec::new();
+        
+        // Extract from code blocks
+        if let Ok(code_block_regex) = Regex::new(r"```(?:bash|sh|shell)?\n([^`]+)```") {
+            for cap in code_block_regex.captures_iter(response) {
+                if let Some(command) = cap.get(1) {
+                    let cmd = command.as_str().trim();
+                    if !cmd.is_empty() && Self::looks_like_command(cmd) {
+                        commands.push(cmd.to_string());
+                    }
+                }
+            }
+        }
+        
+        // Extract from inline code
+        if let Ok(inline_code_regex) = Regex::new(r"`([^`]+)`") {
+            for cap in inline_code_regex.captures_iter(response) {
+                if let Some(command) = cap.get(1) {
+                    let cmd = command.as_str().trim();
+                    if Self::looks_like_command(cmd) {
+                        commands.push(cmd.to_string());
+                    }
+                }
+            }
+        }
+        
+        // Limit to 3 commands max
+        commands.truncate(3);
+        self.last_suggested_commands = commands;
+        
+        if !self.last_suggested_commands.is_empty() {
+            self.display_interactive_commands();
+        }
+    }
+    
+    fn display_interactive_commands(&self) {
+        println!();
+        println!("{}", style("📋 Suggested Commands:").bold().fg(Color::Cyan));
+        
+        for (i, cmd) in self.last_suggested_commands.iter().enumerate() {
+            println!(
+                "{}  {} {}",
+                style(format!("[{}]", i + 1)).bold().fg(Color::Green),
+                style("💡").fg(Color::Yellow),
+                style(cmd).fg(Color::White)
+            );
+        }
+        println!();
+    }
+    
+    async fn prompt_command_selection(&mut self) -> Result<()> {
+        use dialoguer::{Select, theme::ColorfulTheme};
+        
+        if self.last_suggested_commands.is_empty() {
+            return Ok(());
+        }
+        
+        // Create menu options with "Do nothing" as first option
+        let mut menu_options = vec!["🚫 Do nothing".to_string()];
+        
+        for (i, cmd) in self.last_suggested_commands.iter().enumerate() {
+            menu_options.push(format!("🔧 Execute: {}", cmd));
+        }
+        
+        menu_options.push("✏️  Enter custom command".to_string());
+        
+        let selection = Select::with_theme(&ColorfulTheme::default())
+            .with_prompt("What would you like to do?")
+            .default(0) // Default to "Do nothing" for safety
+            .items(&menu_options)
+            .interact()?;
+        
+        match selection {
+            0 => {
+                // Do nothing - safe default
+                println!("{}", style("✅ No action taken.").fg(Color::Green));
+            }
+            i if i <= self.last_suggested_commands.len() => {
+                // Execute suggested command (i-1 because index 0 is "Do nothing")
+                let command = &self.last_suggested_commands[i - 1];
+                self.execute_command(command).await?;
+            }
+            _ => {
+                // Custom command
+                use dialoguer::Input;
+                let custom_command: String = Input::new()
+                    .with_prompt("Enter your command")
+                    .interact_text()?;
+                
+                if !custom_command.trim().is_empty() {
+                    self.execute_command(&custom_command).await?;
+                } else {
+                    println!("{}", style("✅ No command entered.").fg(Color::Green));
+                }
+            }
+        }
+        
+        Ok(())
+    }
+    
+    fn looks_like_command(text: &str) -> bool {
+        let text = text.trim();
+        
+        // Skip if it's too long (probably not a single command)
+        if text.len() > 200 {
+            return false;
+        }
+        
+        // Skip if it contains newlines (multi-line, probably not a single command)
+        if text.contains('\n') {
+            return false;
+        }
+        
+        // Common command patterns
+        let command_patterns = [
+            r"^(ls|cd|pwd|mkdir|rmdir|rm|cp|mv|cat|less|more|head|tail|grep|find|which|whereis)",
+            r"^(git|npm|yarn|cargo|pip|docker|kubectl|ssh|scp|rsync|curl|wget)",
+            r"^(sudo|su|chmod|chown|ps|kill|top|htop|df|du|free|mount|umount)",
+            r"^(systemctl|service|journalctl|crontab|at|nohup|screen|tmux)",
+            r"^(vim|nano|emacs|code|subl)",
+            r"^[a-zA-Z0-9_-]+\s+", // Generic command with arguments
+        ];
+        
+        command_patterns.iter().any(|pattern| {
+            regex::Regex::new(pattern).map_or(false, |re| re.is_match(text))
+        })
     }
 
     async fn change_model(&mut self) -> Result<()> {
@@ -136,7 +602,8 @@ impl ShyRepl {
             self.config.save()?;
             
             // Update client with new model
-            self.client = OpenRouterClient::new(self.config.api_key.clone(), new_model);
+            self.client = OpenRouterClient::new(self.config.api_key.clone(), new_model.clone());
+            self.config.default_model = new_model;
             
             println!("✅ Model changed successfully!");
         } else {
