@@ -1,6 +1,5 @@
 use anyhow::Result;
 use reedline::{Reedline, Signal, Completer, Suggestion, ColumnarMenu, ReedlineMenu, EditCommand, ReedlineEvent, KeyCode, KeyModifiers, Emacs, Prompt, PromptEditMode, PromptHistorySearch};
-use spinners::{Spinner, Spinners};
 use std::env;
 use std::fs;
 use console::{style, Color};
@@ -172,8 +171,8 @@ impl ShyRepl {
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        println!("🤖 Shy AI Shell Assistant");
-        println!("Type /help for commands, /exit to quit");
+        println!("{}", style("Shy AI Shell Assistant").bold().fg(Color::Cyan));
+        println!("{}", style("Type /help for commands, /exit to quit").dim());
         println!();
 
         loop {
@@ -190,11 +189,11 @@ impl ShyRepl {
                     // All commands starting with / should be executed immediately 
                     // since they're either typed manually or selected from completion
                     if let Err(e) = self.handle_input(input).await {
-                        eprintln!("Error: {}", e);
+                        eprintln!("{} Error: {}", style("✗").fg(Color::Red), style(e).fg(Color::Red));
                     }
                 }
                 Signal::CtrlD | Signal::CtrlC => {
-                    println!("Goodbye! 👋");
+                    println!("{} Goodbye!", style("👋").fg(Color::Cyan));
                     break;
                 }
             }
@@ -219,19 +218,19 @@ impl ShyRepl {
         match cmd {
             "/help" => {
                 println!();
-                println!("Available commands:");
-                println!("  /help     - Show this help message");
-                println!("  /exit     - Exit the assistant");
-                println!("  /model    - Change AI model");
-                println!("  /config   - Show current configuration");
-                println!("  /env      - Show environment information");
-                println!("  /run      - Execute a shell command or show suggested commands");
+                println!("{}", style("Available Commands").bold().fg(Color::Cyan));
+                println!("  {}  {}", style("/help").fg(Color::Green), style("Show this help message").dim());
+                println!("  {}  {}", style("/exit").fg(Color::Green), style("Exit the assistant").dim());
+                println!("  {}  {}", style("/model").fg(Color::Green), style("Change AI model").dim());
+                println!("  {}  {}", style("/config").fg(Color::Green), style("Show current configuration").dim());
+                println!("  {}  {}", style("/env").fg(Color::Green), style("Show environment information").dim());
+                println!("  {}  {}", style("/run").fg(Color::Green), style("Execute a shell command or show suggested commands").dim());
                 println!();
-                println!("Or just type your message to chat with the AI.");
+                println!("{}", style("Or just type your message to chat with the AI.").dim());
                 println!();
             }
             "/exit" => {
-                println!("Goodbye! 👋");
+                println!("{} Goodbye!", style("👋").fg(Color::Cyan));
                 std::process::exit(0);
             }
             "/model" => {
@@ -239,9 +238,9 @@ impl ShyRepl {
             }
             "/config" => {
                 println!();
-                println!("Current configuration:");
-                println!("  Model: {}", self.config.default_model);
-                println!("  Config file: {:?}", Config::config_path()?);
+                println!("{}", style("Current Configuration").bold().fg(Color::Cyan));
+                println!("  {}: {}", style("Model").fg(Color::Green), style(&self.config.default_model).fg(Color::White));
+                println!("  {}: {}", style("Config file").fg(Color::Green), style(format!("{:?}", Config::config_path()?)).dim());
                 println!();
             }
             "/env" => {
@@ -258,15 +257,20 @@ impl ShyRepl {
                         println!();
                         println!("{}", style("📋 Available Suggested Commands:").bold().fg(Color::Cyan));
                         self.display_interactive_commands();
-                        self.prompt_command_selection().await?;
+                        // Note: menu will be shown after chat response, not here
                     } else {
-                        println!("Usage: /run <command>");
-                        println!("Example: /run ls -la");
+                        println!("{}", style("Usage:").bold().fg(Color::Cyan));
+                        println!("  {} {}", style("/run").fg(Color::Green), style("<command>").dim());
+                        println!("{}", style("Example:").bold().fg(Color::Cyan));
+                        println!("  {} {}", style("/run").fg(Color::Green), style("ls -la").dim());
                     }
                 }
             }
             _ => {
-                println!("Unknown command: {}. Type /help for available commands.", cmd);
+                println!("{} Unknown command: {}. Type {} for available commands.", 
+                    style("⚠").fg(Color::Yellow), 
+                    style(cmd).fg(Color::Red), 
+                    style("/help").fg(Color::Green));
             }
         }
 
@@ -275,20 +279,20 @@ impl ShyRepl {
 
     fn show_environment(&self) {
         println!();
-        println!("Environment Information:");
+        println!("{}", style("Environment Information").bold().fg(Color::Cyan));
         
         // Current working directory
         if let Ok(pwd) = env::current_dir() {
-            println!("  Working Directory: {}", pwd.display());
+            println!("  {}: {}", style("Working Directory").fg(Color::Green), style(pwd.display()).fg(Color::White));
         }
         
         // Shell type
         if let Ok(shell) = env::var("SHELL") {
-            println!("  Shell: {}", shell);
+            println!("  {}: {}", style("Shell").fg(Color::Green), style(&shell).fg(Color::White));
         }
         
         // List files (capped at 10)
-        println!("  Files in current directory:");
+        println!("  {}:", style("Files in current directory").fg(Color::Green));
         if let Ok(entries) = fs::read_dir(".") {
             let mut files: Vec<_> = entries
                 .filter_map(|entry| entry.ok())
@@ -298,59 +302,68 @@ impl ShyRepl {
             
             let display_count = files.len().min(10);
             for file in files.iter().take(display_count) {
-                println!("    - {}", file);
+                println!("    {} {}", style("•").fg(Color::Cyan), style(file).dim());
             }
             
             if files.len() > 10 {
-                println!("    ... and {} more files", files.len() - 10);
+                println!("    {} {}", style("•").fg(Color::Cyan), style(format!("and {} more files", files.len() - 10)).dim());
             }
         }
         
         // System info
-        println!("  OS: {}", env::consts::OS);
-        println!("  Architecture: {}", env::consts::ARCH);
+        println!("  {}: {}", style("OS").fg(Color::Green), style(env::consts::OS).fg(Color::White));
+        println!("  {}: {}", style("Architecture").fg(Color::Green), style(env::consts::ARCH).fg(Color::White));
         println!();
     }
 
     async fn execute_command(&self, command: &str) -> Result<()> {
+        self.execute_command_with_confirmation(command, true).await
+    }
+    
+    async fn execute_command_with_confirmation(&self, command: &str, ask_confirmation: bool) -> Result<()> {
         use dialoguer::{Confirm, Input};
         use std::process::Command;
         
         let mut current_command = command.to_string();
         
-        loop {
-            println!();
-            println!("💡 Justification: Executing shell command as requested");
-            println!("🔧 Command: {}", current_command);
-            println!();
-            
-            let should_run = Confirm::new()
-                .with_prompt("Do you want to execute this command?")
-                .default(false)
-                .interact()?;
+        if ask_confirmation {
+            loop {
+                println!();
+                println!("{}", style("Command Execution").bold().fg(Color::Cyan));
+                println!("{} {}", style("•").fg(Color::Green), style("Executing shell command as requested").dim());
+                println!();
+                println!("{}", style("Command:").bold().fg(Color::Green));
+                println!("  {}", self.format_command_with_syntax(&current_command));
+                println!();
                 
-            if !should_run {
-                let modify = Confirm::new()
-                    .with_prompt("Would you like to modify the command?")
+                let should_run = Confirm::new()
+                    .with_prompt("Do you want to execute this command?")
                     .default(false)
                     .interact()?;
                     
-                if modify {
-                    current_command = Input::new()
-                        .with_prompt("Enter modified command")
-                        .with_initial_text(&current_command)
-                        .interact_text()?;
-                    continue;
+                if !should_run {
+                    let modify = Confirm::new()
+                        .with_prompt("Would you like to modify the command?")
+                        .default(false)
+                        .interact()?;
+                        
+                    if modify {
+                        current_command = Input::new()
+                            .with_prompt("Enter modified command")
+                            .with_initial_text(&current_command)
+                            .interact_text()?;
+                        continue;
+                    }
+                    
+                    println!("{}", style("Command cancelled.").fg(Color::Yellow));
+                    return Ok(());
                 }
                 
-                println!("Command cancelled.");
-                return Ok(());
+                break;
             }
-            
-            break;
         }
         
-        println!("Executing: {}", current_command);
+        println!("{} {}", style("▸").fg(Color::Green), style(&current_command).bold());
         
         let output = if cfg!(target_os = "windows") {
             Command::new("cmd")
@@ -372,11 +385,11 @@ impl ShyRepl {
                     eprintln!("{}", String::from_utf8_lossy(&output.stderr));
                 }
                 if !output.status.success() {
-                    println!("Command exited with status: {}", output.status);
+                    println!("{} Command exited with status: {}", style("⚠").fg(Color::Yellow), style(output.status).fg(Color::Red));
                 }
             }
             Err(e) => {
-                eprintln!("Failed to execute command: {}", e);
+                eprintln!("{} Failed to execute command: {}", style("✗").fg(Color::Red), style(e).fg(Color::Red));
             }
         }
         
@@ -384,16 +397,14 @@ impl ShyRepl {
     }
 
     async fn handle_chat(&mut self, message: &str) -> Result<()> {
-        let mut spinner = Spinner::new(Spinners::Dots, "Thinking...".into());
+        use std::time::Instant;
         
-        tokio::spawn(async move {
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            spinner.stop();
-        });
-
+        // Start timing
+        let start_time = Instant::now();
+        
         // Create enriched context with environment info
         let context = self.create_context(message);
-        let response = self.client.stream_chat(&context).await?;
+        let response = self.client.stream_chat_with_timing(&context, start_time, message).await?;
         
         // Extract commands from response for quick execution
         self.extract_and_store_commands(&response);
@@ -401,7 +412,7 @@ impl ShyRepl {
         // Auto-trigger interactive menu if commands were suggested
         if !self.last_suggested_commands.is_empty() {
             if let Err(e) = self.prompt_command_selection().await {
-                eprintln!("Error in command selection: {}", e);
+                eprintln!("{} Error in command selection: {}", style("✗").fg(Color::Red), style(e).fg(Color::Red));
             }
         }
         
@@ -439,10 +450,16 @@ impl ShyRepl {
         
         context.push_str(&format!("OS: {}\n", env::consts::OS));
         context.push_str("\n");
-        context.push_str("Instructions: You are a shell assistant. When suggesting commands, provide:\n");
-        context.push_str("1. Brief justification for the command\n");
-        context.push_str("2. The exact command to run\n");
-        context.push_str("3. Consider the current environment context\n\n");
+        context.push_str("Instructions: You are a professional shell assistant. Provide concise, helpful responses.\n");
+        context.push_str("Response format:\n");
+        context.push_str("- NUMBER your suggestions as 1., 2., 3. to match the execution menu\n");
+        context.push_str("- Suggest 1-3 different solutions with varied approaches\n");
+        context.push_str("- Vary your language - don't repeat the same starting phrases\n");
+        context.push_str("- Be more descriptive about what each command accomplishes\n");
+        context.push_str("- Examples: '1. Show basic listing', '2. Display detailed file info', '3. View hidden files and permissions'\n");
+        context.push_str("- Put commands and flags in backticks: `ls`, `-la`, `git status`\n");
+        context.push_str("- NO emojis - maintain professional CLI aesthetic\n");
+        context.push_str("- Keep explanations brief but informative\n\n");
         context.push_str("User request: ");
         context.push_str(message);
         
@@ -482,24 +499,48 @@ impl ShyRepl {
         commands.truncate(3);
         self.last_suggested_commands = commands;
         
-        if !self.last_suggested_commands.is_empty() {
-            self.display_interactive_commands();
-        }
+        // Commands will be shown in the interactive menu
     }
     
     fn display_interactive_commands(&self) {
         println!();
-        println!("{}", style("📋 Suggested Commands:").bold().fg(Color::Cyan));
+        println!("{}", style("Suggested Commands").bold().fg(Color::Cyan));
         
         for (i, cmd) in self.last_suggested_commands.iter().enumerate() {
+            let formatted_cmd = self.format_command_with_syntax(cmd);
             println!(
-                "{}  {} {}",
+                "{}  {}",
                 style(format!("[{}]", i + 1)).bold().fg(Color::Green),
-                style("💡").fg(Color::Yellow),
-                style(cmd).fg(Color::White)
+                formatted_cmd
             );
         }
         println!();
+    }
+    
+    fn format_command_with_syntax(&self, cmd: &str) -> String {
+        let parts: Vec<&str> = cmd.split_whitespace().collect();
+        if parts.is_empty() {
+            return cmd.to_string();
+        }
+        
+        let mut result = String::new();
+        
+        // Command name in cyan
+        result.push_str(&style(&parts[0]).fg(Color::Cyan).to_string());
+        
+        // Flags and arguments
+        for part in &parts[1..] {
+            result.push(' ');
+            if part.starts_with('-') {
+                // Flags in yellow
+                result.push_str(&style(part).fg(Color::Yellow).to_string());
+            } else {
+                // Arguments in white
+                result.push_str(&style(part).fg(Color::White).to_string());
+            }
+        }
+        
+        result
     }
     
     async fn prompt_command_selection(&mut self) -> Result<()> {
@@ -510,29 +551,31 @@ impl ShyRepl {
         }
         
         // Create menu options with "Do nothing" as first option
-        let mut menu_options = vec!["🚫 Do nothing".to_string()];
+        let mut menu_options = vec!["Do nothing".to_string()];
         
         for (i, cmd) in self.last_suggested_commands.iter().enumerate() {
-            menu_options.push(format!("🔧 Execute: {}", cmd));
+            let formatted_cmd = self.format_command_with_syntax(cmd);
+            menu_options.push(format!("Execute {}: {}", i + 1, formatted_cmd));
         }
         
-        menu_options.push("✏️  Enter custom command".to_string());
+        menu_options.push("Enter custom command".to_string());
         
+        println!(); // Add spacing before menu
         let selection = Select::with_theme(&ColorfulTheme::default())
             .with_prompt("What would you like to do?")
             .default(0) // Default to "Do nothing" for safety
             .items(&menu_options)
             .interact()?;
+        println!(); // Add spacing after selection
         
         match selection {
             0 => {
-                // Do nothing - safe default
-                println!("{}", style("✅ No action taken.").fg(Color::Green));
+                // Do nothing - safe default (dialoguer already shows selection)
             }
             i if i <= self.last_suggested_commands.len() => {
                 // Execute suggested command (i-1 because index 0 is "Do nothing")
                 let command = &self.last_suggested_commands[i - 1];
-                self.execute_command(command).await?;
+                self.execute_command_with_confirmation(command, false).await?;
             }
             _ => {
                 // Custom command
@@ -544,7 +587,7 @@ impl ShyRepl {
                 if !custom_command.trim().is_empty() {
                     self.execute_command(&custom_command).await?;
                 } else {
-                    println!("{}", style("✅ No command entered.").fg(Color::Green));
+                    println!("{}", style("No command entered.").fg(Color::Green));
                 }
             }
         }
@@ -605,9 +648,9 @@ impl ShyRepl {
             self.client = OpenRouterClient::new(self.config.api_key.clone(), new_model.clone());
             self.config.default_model = new_model;
             
-            println!("✅ Model changed successfully!");
+            println!("{} Model changed successfully!", style("✓").fg(Color::Green));
         } else {
-            println!("Model unchanged.");
+            println!("{} Model unchanged.", style("•").fg(Color::Cyan));
         }
         println!();
 

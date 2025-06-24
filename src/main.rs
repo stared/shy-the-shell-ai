@@ -7,7 +7,6 @@ mod config;
 mod init;
 mod repl;
 mod api;
-mod test_dropdown;
 
 use config::Config;
 use init::run_init;
@@ -32,8 +31,6 @@ enum Commands {
         #[arg(value_enum)]
         shell: Shell,
     },
-    /// Test dropdown completion behavior
-    Test,
 }
 
 fn print_completions<G: Generator>(gen: G, cmd: &mut clap::Command) {
@@ -52,9 +49,6 @@ async fn main() -> Result<()> {
             let mut cmd = Cli::command();
             eprintln!("Generating completion file for {shell}...");
             print_completions(shell, &mut cmd);
-        }
-        Some(Commands::Test) => {
-            test_dropdown::test_dropdown_behavior().await?;
         }
         None => {
             // No subcommand means start REPL
