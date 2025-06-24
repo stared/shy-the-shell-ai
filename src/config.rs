@@ -48,10 +48,10 @@ impl Config {
 }
 
 pub const AVAILABLE_MODELS: &[&str] = &[
-    "gpt-4.1-nano",
-    "gpt-4.1-mini",
-    "o4-mini", 
-    "gemini-2.5-flash",
-    "gemini-2.5-pro",
-    "claude-4",
+    "openai/gpt-4o-mini",
+    "openai/gpt-4o",
+    "openai/o4-mini",
+    "google/gemini-2.5-flash",
+    "google/gemini-2.5-pro",
+    "anthropic/claude-3-5-sonnet",
 ];

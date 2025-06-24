@@ -25,12 +25,10 @@ impl ShyRepl {
         })
     }
 
-    pub fn run(&mut self) -> Result<()> {
+    pub async fn run(&mut self) -> Result<()> {
         println!("🤖 Shy AI Shell Assistant");
         println!("Type /help for commands, /exit to quit");
         println!();
-
-        let rt = tokio::runtime::Runtime::new()?;
 
         loop {
             let sig = self.line_editor.read_line(&self.prompt)?;
@@ -43,7 +41,7 @@ impl ShyRepl {
                         continue;
                     }
 
-                    if let Err(e) = rt.block_on(self.handle_input(input)) {
+                    if let Err(e) = self.handle_input(input).await {
                         eprintln!("Error: {}", e);
                     }
                 }

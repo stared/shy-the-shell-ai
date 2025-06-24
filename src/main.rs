@@ -53,14 +53,13 @@ async fn main() -> Result<()> {
         None => {
             // No subcommand means start REPL
             if !Config::exists() {
-                println!("❌ Configuration not found.");
-                println!("Run 'shy init' to set up your API key and model preferences.");
-                return Ok(());
+                println!("Welcome to Shy! Let's set up your configuration first.");
+                run_init()?;
             }
 
             let config = Config::load()?;
             let mut repl = ShyRepl::new(config)?;
-            repl.run()?;
+            repl.run().await?;
         }
     }
 
