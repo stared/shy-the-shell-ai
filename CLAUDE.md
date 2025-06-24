@@ -1,6 +1,6 @@
-# Shy - AI Shell Assistant
+# Shy - SHell AI Assistant
 
-A Rust CLI tool that provides an AI-powered shell assistant with interactive setup and streaming responses.
+A Rust CLI tool that provides an AI-powered shell assistant with interactive setup and streaming responses. Don't be shy, just ask your shell.
 
 ## Project Structure
 - `src/main.rs` - Entry point with CLI setup

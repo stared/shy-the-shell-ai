@@ -1,6 +1,6 @@
-# Shy - AI Shell Assistant
+# Shy - SHell AI Assistant
 
-AI-powered shell assistant with beautiful, animated responses and intelligent command suggestions.
+Don't be shy, just ask your shell. Beautiful, animated AI responses with intelligent command suggestions.
 
 ## Quick Start
 
