@@ -1,6 +1,6 @@
 [package]
 name = "shy"
-version = "0.1.3"
+version = "0.1.5"
 edition = "2021"
 description = "SHell AI Assistant - Don't be shy, just ask your shell"
 authors = ["Piotr Migdał <pmigdal@gmail.com>"]
@@ -36,3 +36,6 @@ crossterm = "0.27"
 console = "0.15"
 regex = "1.10"
 chrono = "0.4"
+
+[dev-dependencies]
+tempfile = "3.0"

@@ -237,49 +237,7 @@ impl ShyRepl {
 
         match cmd {
             "/help" => {
-                println!();
-                println!("{}", style("Available Commands").bold().fg(Color::Cyan));
-                println!(
-                    "  {}  {}",
-                    style("/help").fg(Color::Green),
-                    style("Show this help message").dim()
-                );
-                println!(
-                    "  {}  {}",
-                    style("/exit").fg(Color::Green),
-                    style("Exit the assistant").dim()
-                );
-                println!(
-                    "  {}  {}",
-                    style("/model").fg(Color::Green),
-                    style("Change AI model").dim()
-                );
-                println!(
-                    "  {}  {}",
-                    style("/config").fg(Color::Green),
-                    style("Show current configuration").dim()
-                );
-                println!(
-                    "  {}  {}",
-                    style("/env").fg(Color::Green),
-                    style("Show environment information").dim()
-                );
-                println!(
-                    "  {}  {}",
-                    style("/run").fg(Color::Green),
-                    style("Execute a shell command or show suggested commands").dim()
-                );
-                println!(
-                    "  {}  {}",
-                    style("/history").fg(Color::Green),
-                    style("Show recent shell history with navigation").dim()
-                );
-                println!();
-                println!(
-                    "{}",
-                    style("Or just type your message to chat with the AI.").dim()
-                );
-                println!();
+                self.show_help();
             }
             "/exit" => {
                 println!("{} Goodbye!", style("👋").fg(Color::Cyan));
@@ -420,6 +378,36 @@ impl ShyRepl {
         println!();
     }
 
+    fn show_help(&self) {
+        println!();
+        println!("{}", style("Available Commands").bold().fg(Color::Cyan));
+        
+        let commands = [
+            ("/help", "Show this help message"),
+            ("/exit", "Exit the assistant"),
+            ("/model", "Change AI model"),
+            ("/config", "Show current configuration"),
+            ("/env", "Show environment information"),
+            ("/run", "Execute a shell command or show suggested commands"),
+            ("/history", "Show recent shell history with navigation"),
+        ];
+        
+        for (cmd, desc) in &commands {
+            println!(
+                "  {}  {}",
+                style(cmd).fg(Color::Green),
+                style(desc).dim()
+            );
+        }
+        
+        println!();
+        println!(
+            "{}",
+            style("Or just type your message to chat with the AI.").dim()
+        );
+        println!();
+    }
+
     async fn execute_command(&self, command: &str) -> Result<()> {
         self.execute_command_with_confirmation(command, true).await
     }
@@ -429,62 +417,79 @@ impl ShyRepl {
         command: &str,
         ask_confirmation: bool,
     ) -> Result<()> {
+        let final_command = if ask_confirmation {
+            match self.get_confirmed_command(command)? {
+                Some(cmd) => cmd,
+                None => return Ok(()), // User cancelled
+            }
+        } else {
+            command.to_string()
+        };
+
+        self.run_system_command(&final_command)
+    }
+
+    fn get_confirmed_command(&self, initial_command: &str) -> Result<Option<String>> {
         use dialoguer::{Confirm, Input};
-        use std::process::Command;
+        
+        let mut current_command = initial_command.to_string();
 
-        let mut current_command = command.to_string();
+        loop {
+            self.display_command_preview(&current_command);
 
-        if ask_confirmation {
-            loop {
-                println!();
-                println!("{}", style("Command Execution").bold().fg(Color::Cyan));
-                println!(
-                    "{} {}",
-                    style("•").fg(Color::Green),
-                    style("Executing shell command as requested").dim()
-                );
-                println!();
-                println!("{}", style("Command:").bold().fg(Color::Green));
-                println!("  {}", self.format_command_with_syntax(&current_command));
-                println!();
+            let should_run = Confirm::new()
+                .with_prompt("Do you want to execute this command?")
+                .default(false)
+                .interact()?;
 
-                let should_run = Confirm::new()
-                    .with_prompt("Do you want to execute this command?")
-                    .default(false)
-                    .interact()?;
+            if should_run {
+                return Ok(Some(current_command));
+            }
 
-                if !should_run {
-                    let modify = Confirm::new()
-                        .with_prompt("Would you like to modify the command?")
-                        .default(false)
-                        .interact()?;
+            let modify = Confirm::new()
+                .with_prompt("Would you like to modify the command?")
+                .default(false)
+                .interact()?;
 
-                    if modify {
-                        current_command = Input::new()
-                            .with_prompt("Enter modified command")
-                            .with_initial_text(&current_command)
-                            .interact_text()?;
-                        continue;
-                    }
-
-                    println!("{}", style("Command cancelled.").fg(Color::Yellow));
-                    return Ok(());
-                }
-
-                break;
+            if modify {
+                current_command = Input::new()
+                    .with_prompt("Enter modified command")
+                    .with_initial_text(&current_command)
+                    .interact_text()?;
+            } else {
+                println!("{}", style("Command cancelled.").fg(Color::Yellow));
+                return Ok(None);
             }
         }
+    }
+
+    fn display_command_preview(&self, command: &str) {
+        println!();
+        println!("{}", style("Command Execution").bold().fg(Color::Cyan));
+        println!(
+            "{} {}",
+            style("•").fg(Color::Green),
+            style("Executing shell command as requested").dim()
+        );
+        println!();
+        println!("{}", style("Command:").bold().fg(Color::Green));
+        println!("  {}", self.format_command_with_syntax(command));
+        println!();
+    }
+
+    fn run_system_command(&self, command: &str) -> Result<()> {
+        use std::process::Command;
 
         println!(
             "{} {}",
             style("▸").fg(Color::Green),
-            style(&current_command).bold()
+            style(command).bold()
         );
 
         let output = if cfg!(target_os = "windows") {
-            Command::new("cmd").args(["/C", &current_command]).output()
+            Command::new("cmd").args(["/C", command]).output()
         } else {
-            Command::new("sh").arg("-c").arg(&current_command).output()
+            Command::new("sh").arg("-c").arg(command).output()
         };
 
         match output {
@@ -908,33 +913,48 @@ impl ShyRepl {
         let history_paths = self.get_shell_history_paths();
 
         for (path, shell_type) in history_paths {
-            if path.exists() {
-                if let Ok(contents) = fs::read_to_string(&path) {
-                    let all_commands = if shell_type == "Fish" {
-                        self.parse_fish_history(&contents)
-                    } else {
-                        self.parse_standard_history(&contents)
-                    };
+            let Some(contents) = self.read_history_file(&path)? else {
+                continue;
+            };
 
-                    let total_count = all_commands.len();
-                    let commands: Vec<String> = all_commands
-                        .into_iter()
-                        .rev() // Most recent first
-                        .skip(offset)
-                        .take(limit)
-                        .collect();
+            let all_commands = self.parse_history_by_type(&contents, shell_type);
+            let total_count = all_commands.len();
+            
+            let commands: Vec<String> = all_commands
+                .into_iter()
+                .rev() // Most recent first
+                .skip(offset)
+                .take(limit)
+                .collect();
 
-                    let source_info = format!("{} ({})", shell_type, path.display());
-                    return Ok((commands, source_info, total_count));
-                }
-            }
+            let source_info = format!("{} ({})", shell_type, path.display());
+            return Ok((commands, source_info, total_count));
         }
 
         Ok((Vec::new(), "No history found".to_string(), 0))
     }
 
     async fn select_history_source(&mut self) -> Result<bool> {
-        // Get all possible paths, not just the prioritized ones
+        let all_paths = self.collect_all_history_paths();
+        let (available_sources, available_indices) = self.build_available_sources(&all_paths);
+
+        if available_sources.is_empty() {
+            self.display_no_sources_message();
+            return Ok(false);
+        }
+
+        if available_sources.len() == 1 {
+            self.display_single_source_message(&available_sources[0]);
+            return Ok(false);
+        }
+
+        let selection = self.prompt_source_selection(&available_sources)?;
+        self.handle_source_selection(selection, &available_sources, &available_indices);
+
+        Ok(true) // Source was changed
+    }
+
+    fn collect_all_history_paths(&self) -> Vec<(PathBuf, &'static str)> {
         let mut all_paths = Vec::new();
 
         if let Ok(histfile) = env::var("HISTFILE") {
@@ -943,7 +963,7 @@ impl ShyRepl {
 
         if let Ok(home) = env::var("HOME") {
             let home_path = PathBuf::from(home);
-            let all_files = [
+            let standard_files = [
                 (".local/share/fish/fish_history", "Fish"),
                 (".zsh_history", "Zsh"),
                 (".bash_history", "Bash"),
@@ -951,7 +971,7 @@ impl ShyRepl {
                 (".sh_history", "Shell"),
             ];
 
-            for (file, shell_type) in &all_files {
+            for (file, shell_type) in &standard_files {
                 let path = home_path.join(file);
                 if !all_paths.iter().any(|(p, _)| p == &path) {
                     all_paths.push((path, *shell_type));
@@ -959,26 +979,16 @@ impl ShyRepl {
             }
         }
 
+        all_paths
+    }
+
+    fn build_available_sources(&self, all_paths: &[(PathBuf, &str)]) -> (Vec<String>, Vec<usize>) {
         let mut available_sources = Vec::new();
         let mut available_indices = Vec::new();
 
         for (i, (path, shell_type)) in all_paths.iter().enumerate() {
             if path.exists() {
-                let last_modified = if let Ok(metadata) = fs::metadata(path) {
-                    if let Ok(modified) = metadata.modified() {
-                        if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
-                            let timestamp = duration.as_secs();
-                            self.format_file_timestamp(timestamp as i64)
-                        } else {
-                            "unknown".to_string()
-                        }
-                    } else {
-                        "unknown".to_string()
-                    }
-                } else {
-                    "unknown".to_string()
-                };
-
+                let last_modified = self.get_file_modification_time(path);
                 available_sources.push(format!(
                     "{} ({}) - last modified: {}",
                     shell_type,
@@ -989,57 +999,66 @@ impl ShyRepl {
             }
         }
 
-        if available_sources.is_empty() {
-            println!();
-            println!("{}", style("No history sources found").fg(Color::Yellow));
-            println!();
-            return Ok(false);
-        }
+        (available_sources, available_indices)
+    }
 
-        if available_sources.len() == 1 {
-            println!();
-            println!(
-                "{}",
-                style("Only one history source available").fg(Color::Cyan)
-            );
-            println!("  {}", style(&available_sources[0]).fg(Color::White));
-            println!();
-            return Ok(false);
+    fn get_file_modification_time(&self, path: &std::path::Path) -> String {
+        match fs::metadata(path)
+            .and_then(|metadata| metadata.modified())
+            .and_then(|modified| {
+                modified.duration_since(std::time::UNIX_EPOCH)
+                    .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "Invalid timestamp"))
+            }) {
+            Ok(duration) => self.format_file_timestamp(duration.as_secs() as i64),
+            Err(_) => "unknown".to_string(),
         }
+    }
 
+    fn display_no_sources_message(&self) {
+        println!();
+        println!("{}", style("No history sources found").fg(Color::Yellow));
+        println!();
+    }
+
+    fn display_single_source_message(&self, source: &str) {
+        println!();
+        println!("{}", style("Only one history source available").fg(Color::Cyan));
+        println!("  {}", style(source).fg(Color::White));
+        println!();
+    }
+
+    fn prompt_source_selection(&self, available_sources: &[String]) -> Result<usize> {
         use dialoguer::{theme::ColorfulTheme, Select};
 
-        // Add option to use auto-detection
         let mut menu_options = vec!["Auto-detect (default behavior)".to_string()];
-        menu_options.extend(available_sources);
+        menu_options.extend(available_sources.iter().cloned());
 
         println!();
-        let selection = Select::with_theme(&ColorfulTheme::default())
+        Select::with_theme(&ColorfulTheme::default())
             .with_prompt("Select history source")
             .default(0)
             .items(&menu_options)
-            .interact()?;
+            .interact()
+            .map_err(Into::into)
+    }
 
+    fn handle_source_selection(&mut self, selection: usize, available_sources: &[String], available_indices: &[usize]) {
         if selection == 0 {
-            // Reset to auto-detection
             self.selected_history_source = None;
             println!();
             println!("{}", style("Reset to auto-detection").fg(Color::Green));
             println!();
         } else {
-            // Set specific source
             let source_index = available_indices[selection - 1];
             self.selected_history_source = Some(source_index);
             println!();
             println!(
                 "{} {}",
                 style("Selected source:").fg(Color::Green),
-                style(&menu_options[selection]).fg(Color::White)
+                style(&available_sources[selection - 1]).fg(Color::White)
             );
             println!();
         }
-
-        Ok(true) // Source was changed
     }
 
     fn format_file_timestamp(&self, timestamp: i64) -> String {
@@ -1075,32 +1094,28 @@ impl ShyRepl {
         let history_paths = self.get_shell_history_paths();
 
         for (path, shell_type) in history_paths {
-            if path.exists() {
-                if let Ok(contents) = fs::read_to_string(&path) {
-                    let commands = if shell_type == "Fish" {
-                        self.parse_fish_history(&contents)
-                    } else {
-                        self.parse_standard_history(&contents)
-                    };
+            let Some(contents) = self.read_history_file(&path)? else {
+                continue;
+            };
 
-                    let recent_commands: Vec<String> = commands
-                        .into_iter()
-                        .rev() // Get most recent first
-                        .take(limit)
-                        .collect::<Vec<_>>()
-                        .into_iter()
-                        .rev() // Reverse back to chronological order
-                        .collect();
+            let commands = self.parse_history_by_type(&contents, shell_type);
+            let recent_commands: Vec<String> = commands
+                .into_iter()
+                .rev() // Get most recent first
+                .take(limit)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev() // Reverse back to chronological order
+                .collect();
 
-                    let source_info = format!("{} ({})", shell_type, path.display());
-                    return Ok((recent_commands, source_info));
-                }
-            }
+            let source_info = format!("{} ({})", shell_type, path.display());
+            return Ok((recent_commands, source_info));
         }
 
         Ok((Vec::new(), "No history found".to_string()))
     }
 
+    #[allow(dead_code)]
     fn get_all_bash_history(&self) -> Result<Vec<String>> {
         let history_paths = self.get_shell_history_paths();
 
@@ -1121,7 +1136,7 @@ impl ShyRepl {
         Ok(Vec::new())
     }
 
-    fn parse_standard_history(&self, contents: &str) -> Vec<String> {
+    pub fn parse_standard_history(&self, contents: &str) -> Vec<String> {
         contents
             .lines()
             .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
@@ -1130,7 +1145,25 @@ impl ShyRepl {
             .collect()
     }
 
-    fn parse_fish_history(&self, contents: &str) -> Vec<String> {
+    fn read_history_file(&self, path: &std::path::Path) -> Result<Option<String>> {
+        if !path.exists() {
+            return Ok(None);
+        }
+        
+        match fs::read_to_string(path) {
+            Ok(contents) => Ok(Some(contents)),
+            Err(_) => Ok(None),
+        }
+    }
+
+    fn parse_history_by_type(&self, contents: &str, shell_type: &str) -> Vec<String> {
+        match shell_type {
+            "Fish" => self.parse_fish_history(contents),
+            _ => self.parse_standard_history(contents),
+        }
+    }
+
+    pub fn parse_fish_history(&self, contents: &str) -> Vec<String> {
         let mut commands = Vec::new();
         let mut current_command = String::new();
         let mut in_command = false;

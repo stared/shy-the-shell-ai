@@ -84,6 +84,7 @@ impl OpenRouterClient {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn stream_chat(&self, message: &str) -> Result<String> {
         self.stream_chat_internal(message).await
     }
@@ -130,25 +131,25 @@ impl OpenRouterClient {
                         break;
                     }
 
-                    if let Ok(json) = serde_json::from_str::<Value>(data) {
-                        if let Some(choices) = json["choices"].as_array() {
-                            if let Some(choice) = choices.first() {
-                                if let Some(delta) = choice["delta"].as_object() {
-                                    if let Some(content) = delta["content"].as_str() {
-                                        if first_token {
-                                            first_token = false;
-                                        }
-                                        full_response.push_str(content);
-                                    }
-                                }
-                            }
+                    if let Some(content) = self.extract_content_from_json(data) {
+                        if first_token {
+                            first_token = false;
                         }
+                        full_response.push_str(&content);
                     }
                 }
             }
         }
 
         Ok(full_response)
+    }
+
+    fn extract_content_from_json(&self, data: &str) -> Option<String> {
+        let json = serde_json::from_str::<Value>(data).ok()?;
+        let choices = json["choices"].as_array()?;
+        let choice = choices.first()?;
+        let delta = choice["delta"].as_object()?;
+        delta["content"].as_str().map(|s| s.to_string())
     }
 
     fn print_with_syntax_highlighting(&self, text: &str) {
