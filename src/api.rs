@@ -68,6 +68,10 @@ impl OpenRouterClient {
                     println!();
                     self.print_with_syntax_highlighting(&response);
                     println!(); // Move to next line
+                    
+                    // Ensure output is flushed and terminal is ready for interactive elements
+                    use std::io::{self, Write};
+                    io::stdout().flush().unwrap();
 
                     return Ok(response);
                 }

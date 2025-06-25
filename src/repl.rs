@@ -533,6 +533,9 @@ impl ShyRepl {
 
         // Auto-trigger interactive menu if commands were suggested
         if !self.last_suggested_commands.is_empty() {
+            // Small delay to ensure terminal state is stable after response printing
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            
             if let Err(e) = self.prompt_command_selection().await {
                 eprintln!(
                     "{} Error in command selection: {}",
@@ -692,19 +695,22 @@ impl ShyRepl {
         let mut menu_options = vec!["Do nothing".to_string()];
 
         for (i, cmd) in self.last_suggested_commands.iter().enumerate() {
-            let formatted_cmd = self.format_command_with_syntax(cmd);
-            menu_options.push(format!("Execute {}: {}", i + 1, formatted_cmd));
+            // Use plain text for menu items to avoid ANSI conflicts with dialoguer
+            menu_options.push(format!("Execute {}: {}", i + 1, cmd));
         }
 
         menu_options.push("Enter custom command".to_string());
 
+        // Ensure clean terminal state before interactive menu
+        use std::io::{self, Write};
+        io::stdout().flush().unwrap();
+        
         println!(); // Add spacing before menu
         let selection = Select::with_theme(&ColorfulTheme::default())
             .with_prompt("What would you like to do?")
             .default(0) // Default to "Do nothing" for safety
             .items(&menu_options)
             .interact()?;
-        println!(); // Add spacing after selection
 
         match selection {
             0 => {
