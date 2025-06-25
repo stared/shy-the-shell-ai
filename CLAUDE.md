@@ -25,7 +25,10 @@ After making changes, always compile to test:
 cargo build --release
 ```
 
-With each commit, increment the patch version in `Cargo.toml` (e.g., 0.1.0 → 0.1.1). For bigger changes or breaking changes, increment the minor version (e.g., 0.1.5 → 0.2.0).
+**CRITICAL: Version Increment Required**
+With each commit, you MUST increment the patch version in `Cargo.toml` (e.g., 0.1.1 → 0.1.2). 
+For bigger changes or breaking changes, increment the minor version (e.g., 0.1.5 → 0.2.0).
+This is a MANDATORY step that cannot be skipped.
 
 ## Dependencies
 - `clap` - CLI argument parsing and completions

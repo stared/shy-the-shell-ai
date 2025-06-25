@@ -3,10 +3,10 @@ use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Generator, Shell};
 use std::io;
 
+mod api;
 mod config;
 mod init;
 mod repl;
-mod api;
 
 use config::Config;
 use init::run_init;

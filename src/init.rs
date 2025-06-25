@@ -1,6 +1,6 @@
-use anyhow::Result;
-use dialoguer::{Input, Select, theme::ColorfulTheme};
 use crate::config::{Config, AVAILABLE_MODELS};
+use anyhow::Result;
+use dialoguer::{theme::ColorfulTheme, Input, Select};
 
 pub fn run_init() -> Result<()> {
     println!("🎯 Welcome to Shy - AI Shell Assistant Setup");

@@ -570,7 +570,7 @@ impl ShyRepl {
             if !files.is_empty() {
                 context.push_str("Files in current directory: ");
                 context.push_str(&files.join(", "));
-                context.push_str("\n");
+                context.push('\n');
             }
         }
 
@@ -585,7 +585,7 @@ impl ShyRepl {
         }
 
         context.push_str(&format!("OS: {}\n", env::consts::OS));
-        context.push_str("\n");
+        context.push('\n');
         context.push_str("Instructions: You are a professional shell assistant. Provide concise, helpful responses.\n");
         context.push_str("Response format:\n");
         context.push_str("- NUMBER your suggestions as 1., 2., 3. to match the execution menu\n");
@@ -759,7 +759,7 @@ impl ShyRepl {
 
         command_patterns
             .iter()
-            .any(|pattern| regex::Regex::new(pattern).map_or(false, |re| re.is_match(text)))
+            .any(|pattern| regex::Regex::new(pattern).is_ok_and(|re| re.is_match(text)))
     }
 
     async fn change_model(&mut self) -> Result<()> {
@@ -799,15 +799,15 @@ impl ShyRepl {
         Ok(())
     }
 
-
     async fn show_bash_history_interactive(&mut self) -> Result<()> {
         let mut current_offset = self.history_offset;
         let page_size = 20;
-        
+
         loop {
             // Get paginated history
-            let (commands, source_info, total_count) = self.get_paginated_history(current_offset, page_size)?;
-            
+            let (commands, source_info, total_count) =
+                self.get_paginated_history(current_offset, page_size)?;
+
             if commands.is_empty() && current_offset == 0 {
                 println!();
                 println!("{}", style("No shell history found").fg(Color::Yellow));
@@ -815,7 +815,7 @@ impl ShyRepl {
                 println!();
                 return Ok(());
             }
-            
+
             // Display history
             println!();
             println!("{}", style("Shell History").bold().fg(Color::Cyan));
@@ -829,7 +829,7 @@ impl ShyRepl {
                 style("Total commands").fg(Color::Green),
                 style(total_count).fg(Color::White)
             );
-            
+
             let start_num = current_offset + 1;
             let end_num = (current_offset + commands.len()).min(total_count);
             println!(
@@ -854,7 +854,7 @@ impl ShyRepl {
             use dialoguer::{theme::ColorfulTheme, Select};
 
             let mut menu_options = vec!["Exit history".to_string()];
-            
+
             // Add navigation options
             if current_offset > 0 {
                 menu_options.push("← Previous 20".to_string());
@@ -862,7 +862,7 @@ impl ShyRepl {
             if current_offset + page_size < total_count {
                 menu_options.push("Next 20 →".to_string());
             }
-            
+
             menu_options.push("Change history source".to_string());
 
             let selection = Select::with_theme(&ColorfulTheme::default())
@@ -888,13 +888,17 @@ impl ShyRepl {
                 _ => {}
             }
         }
-        
+
         // Update stored offset
         self.history_offset = current_offset;
         Ok(())
     }
 
-    fn get_paginated_history(&self, offset: usize, limit: usize) -> Result<(Vec<String>, String, usize)> {
+    fn get_paginated_history(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<String>, String, usize)> {
         let history_paths = self.get_shell_history_paths();
 
         for (path, shell_type) in history_paths {
@@ -905,7 +909,7 @@ impl ShyRepl {
                     } else {
                         self.parse_standard_history(&contents)
                     };
-                    
+
                     let total_count = all_commands.len();
                     let commands: Vec<String> = all_commands
                         .into_iter()
@@ -926,7 +930,7 @@ impl ShyRepl {
     async fn select_history_source(&mut self) -> Result<bool> {
         // Get all possible paths, not just the prioritized ones
         let mut all_paths = Vec::new();
-        
+
         if let Ok(histfile) = env::var("HISTFILE") {
             all_paths.push((PathBuf::from(histfile), "Custom"));
         }
@@ -948,10 +952,10 @@ impl ShyRepl {
                 }
             }
         }
-        
+
         let mut available_sources = Vec::new();
         let mut available_indices = Vec::new();
-        
+
         for (i, (path, shell_type)) in all_paths.iter().enumerate() {
             if path.exists() {
                 let last_modified = if let Ok(metadata) = fs::metadata(path) {
@@ -968,44 +972,48 @@ impl ShyRepl {
                 } else {
                     "unknown".to_string()
                 };
-                
-                available_sources.push(format!("{} ({}) - last modified: {}", 
-                    shell_type, 
+
+                available_sources.push(format!(
+                    "{} ({}) - last modified: {}",
+                    shell_type,
                     path.display(),
                     last_modified
                 ));
                 available_indices.push(i);
             }
         }
-        
+
         if available_sources.is_empty() {
             println!();
             println!("{}", style("No history sources found").fg(Color::Yellow));
             println!();
             return Ok(false);
         }
-        
+
         if available_sources.len() == 1 {
             println!();
-            println!("{}", style("Only one history source available").fg(Color::Cyan));
+            println!(
+                "{}",
+                style("Only one history source available").fg(Color::Cyan)
+            );
             println!("  {}", style(&available_sources[0]).fg(Color::White));
             println!();
             return Ok(false);
         }
-        
+
         use dialoguer::{theme::ColorfulTheme, Select};
-        
+
         // Add option to use auto-detection
         let mut menu_options = vec!["Auto-detect (default behavior)".to_string()];
         menu_options.extend(available_sources);
-        
+
         println!();
         let selection = Select::with_theme(&ColorfulTheme::default())
             .with_prompt("Select history source")
             .default(0)
             .items(&menu_options)
             .interact()?;
-        
+
         if selection == 0 {
             // Reset to auto-detection
             self.selected_history_source = None;
@@ -1017,23 +1025,24 @@ impl ShyRepl {
             let source_index = available_indices[selection - 1];
             self.selected_history_source = Some(source_index);
             println!();
-            println!("{} {}", 
+            println!(
+                "{} {}",
                 style("Selected source:").fg(Color::Green),
                 style(&menu_options[selection]).fg(Color::White)
             );
             println!();
         }
-        
+
         Ok(true) // Source was changed
     }
 
     fn format_file_timestamp(&self, timestamp: i64) -> String {
         use std::time::{SystemTime, UNIX_EPOCH};
-        
+
         if let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) {
             let now_secs = now.as_secs() as i64;
             let diff = now_secs - timestamp;
-            
+
             if diff < 3600 {
                 // Less than an hour ago
                 let minutes = diff / 60;
@@ -1067,7 +1076,7 @@ impl ShyRepl {
                     } else {
                         self.parse_standard_history(&contents)
                     };
-                    
+
                     let recent_commands: Vec<String> = commands
                         .into_iter()
                         .rev() // Get most recent first
@@ -1088,7 +1097,7 @@ impl ShyRepl {
 
     fn get_all_bash_history(&self) -> Result<Vec<String>> {
         let history_paths = self.get_shell_history_paths();
-        
+
         for (path, shell_type) in history_paths {
             if path.exists() {
                 if let Ok(contents) = fs::read_to_string(&path) {
@@ -1097,12 +1106,12 @@ impl ShyRepl {
                     } else {
                         self.parse_standard_history(&contents)
                     };
-                    
+
                     return Ok(commands);
                 }
             }
         }
-        
+
         Ok(Vec::new())
     }
 
@@ -1142,7 +1151,7 @@ impl ShyRepl {
                 current_command.push_str(line.trim());
             }
         }
-        
+
         // Don't forget the last command
         if in_command && !current_command.trim().is_empty() {
             commands.push(current_command.trim().to_string());
@@ -1191,10 +1200,10 @@ impl ShyRepl {
 
         // Otherwise, return prioritized list
         let mut paths = Vec::new();
-        
+
         // Detect current shell and prioritize its history
         let current_shell = self.detect_current_shell();
-        
+
         // Add current shell's history first if no manual selection
         for (path, shell_type) in &all_paths {
             match current_shell.as_str() {
@@ -1241,7 +1250,9 @@ impl ShyRepl {
                 .args(["-p", &ppid, "-o", "comm="])
                 .output()
             {
-                let parent_process = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
+                let parent_process = String::from_utf8_lossy(&output.stdout)
+                    .trim()
+                    .to_lowercase();
                 if parent_process.contains("fish") {
                     return "fish".to_string();
                 } else if parent_process.contains("zsh") {
@@ -1257,7 +1268,9 @@ impl ShyRepl {
             .args(["-p", &std::process::id().to_string(), "-o", "comm="])
             .output()
         {
-            let shell_process = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
+            let shell_process = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .to_lowercase();
             if shell_process.contains("fish") {
                 return "fish".to_string();
             } else if shell_process.contains("zsh") {

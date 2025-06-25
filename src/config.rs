@@ -11,8 +11,8 @@ pub struct Config {
 
 impl Config {
     pub fn config_dir() -> Result<PathBuf> {
-        let mut path = dirs::config_dir()
-            .ok_or_else(|| anyhow::anyhow!("Could not find config directory"))?;
+        let mut path =
+            dirs::config_dir().ok_or_else(|| anyhow::anyhow!("Could not find config directory"))?;
         path.push("shy");
         Ok(path)
     }
@@ -33,7 +33,7 @@ impl Config {
     pub fn save(&self) -> Result<()> {
         let config_dir = Self::config_dir()?;
         fs::create_dir_all(&config_dir)?;
-        
+
         let path = Self::config_path()?;
         let contents = toml::to_string_pretty(self)?;
         fs::write(path, contents)?;
@@ -41,9 +41,7 @@ impl Config {
     }
 
     pub fn exists() -> bool {
-        Self::config_path()
-            .map(|p| p.exists())
-            .unwrap_or(false)
+        Self::config_path().map(|p| p.exists()).unwrap_or(false)
     }
 }
 
