@@ -1,9 +1,14 @@
 [package]
 name = "shy"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
-description = "AI-powered shell assistant"
-authors = ["Your Name <your.email@example.com>"]
+description = "SHell AI Assistant - Don't be shy, just ask your shell"
+authors = ["Piotr Migdał <pmigdal@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/yourusername/shy-the-shell-ai"
+homepage = "https://github.com/yourusername/shy-the-shell-ai"
+keywords = ["cli", "ai", "shell", "assistant", "openrouter"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 clap = { version = "4.0", features = ["derive", "env"] }
