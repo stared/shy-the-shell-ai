@@ -1,6 +1,6 @@
 [package]
 name = "shy"
-version = "0.1.5"
+version = "0.1.8"
 edition = "2021"
 description = "SHell AI Assistant - Don't be shy, just ask your shell"
 authors = ["Piotr Migdał <pmigdal@gmail.com>"]

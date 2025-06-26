@@ -494,13 +494,22 @@ impl ShyRepl {
 
         match output {
             Ok(output) => {
-                if !output.stdout.is_empty() {
-                    println!("{}", String::from_utf8_lossy(&output.stdout));
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                
+                if !stdout.is_empty() {
+                    println!("{}", stdout);
                 }
-                if !output.stderr.is_empty() {
-                    eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+                if !stderr.is_empty() {
+                    eprintln!("{}", stderr);
                 }
-                if !output.status.success() {
+                
+                if output.status.success() {
+                    // Analyze output for intelligent follow-up suggestions
+                    if let Some(suggestions) = self.analyze_command_output(command, &stdout) {
+                        self.display_follow_up_suggestions(&suggestions);
+                    }
+                } else {
                     println!(
                         "{} Command exited with status: {}",
                         style("⚠").fg(Color::Yellow),
@@ -518,6 +527,111 @@ impl ShyRepl {
         }
 
         Ok(())
+    }
+
+    fn analyze_command_output(&self, command: &str, output: &str) -> Option<Vec<String>> {
+        let mut suggestions = Vec::new();
+        
+        // XKCD API detection
+        if command.contains("xkcd.com") && command.contains("info.0.json") {
+            if let Some(download_cmd) = self.extract_xkcd_download_suggestion(output) {
+                suggestions.push(download_cmd);
+            }
+        }
+        
+        // JSON API responses with downloadable content
+        if self.looks_like_json(output) {
+            if let Some(download_cmd) = self.extract_download_from_json(output) {
+                suggestions.push(download_cmd);
+            }
+        }
+        
+        // File listings that could benefit from filtering/sorting
+        if command.starts_with("ls") && output.lines().count() > 10 {
+            suggestions.push("Filter results with: ls | grep <pattern>".to_string());
+            suggestions.push("Sort by date: ls -lt".to_string());
+        }
+        
+        // Git commands that often have follow-ups
+        if command.starts_with("git status") && output.contains("modified:") {
+            suggestions.push("git diff".to_string());
+            suggestions.push("git add .".to_string());
+        }
+        
+        if suggestions.is_empty() {
+            None
+        } else {
+            Some(suggestions)
+        }
+    }
+
+    fn extract_xkcd_download_suggestion(&self, output: &str) -> Option<String> {
+        
+        // Parse JSON to extract img URL and title
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(output) {
+            let img_url = json["img"].as_str()?;
+            let title = json["title"].as_str().unwrap_or("comic");
+            let safe_title = json["safe_title"].as_str().unwrap_or(title);
+            
+            // Extract filename from URL
+            if let Some(filename) = img_url.split('/').last() {
+                return Some(format!(
+                    "curl -o '{}.{}' '{}'", 
+                    safe_title, 
+                    filename.split('.').last().unwrap_or("png"),
+                    img_url
+                ));
+            }
+        }
+        
+        None
+    }
+
+    fn extract_download_from_json(&self, output: &str) -> Option<String> {
+        // Look for common downloadable file patterns in JSON
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(output) {
+            // Check for various download URL patterns
+            for key in &["img", "image", "url", "download_url", "file", "src"] {
+                if let Some(url) = json[key].as_str() {
+                    if self.is_downloadable_url(url) {
+                        if let Some(filename) = url.split('/').last() {
+                            return Some(format!("curl -o '{}' '{}'", filename, url));
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn is_downloadable_url(&self, url: &str) -> bool {
+        let downloadable_extensions = [
+            ".png", ".jpg", ".jpeg", ".gif", ".pdf", ".zip", 
+            ".mp4", ".mp3", ".doc", ".txt", ".svg"
+        ];
+        
+        downloadable_extensions.iter().any(|ext| url.ends_with(ext))
+    }
+
+    fn looks_like_json(&self, text: &str) -> bool {
+        let trimmed = text.trim();
+        (trimmed.starts_with('{') && trimmed.ends_with('}')) ||
+        (trimmed.starts_with('[') && trimmed.ends_with(']'))
+    }
+
+    fn display_follow_up_suggestions(&self, suggestions: &[String]) {
+        println!();
+        println!("{}", style("💡 Suggested next steps:").bold().fg(Color::Cyan));
+        
+        for (i, suggestion) in suggestions.iter().enumerate() {
+            println!(
+                "  {}  {}",
+                style(format!("{}.", i + 1)).fg(Color::Green),
+                self.format_command_with_syntax(suggestion)
+            );
+        }
+        
+        println!();
     }
 
     async fn handle_chat(&mut self, message: &str) -> Result<()> {
@@ -617,6 +731,21 @@ impl ShyRepl {
 
         let mut commands = Vec::new();
 
+        // Extract from numbered lists (most common pattern in AI responses)
+        if let Ok(numbered_regex) = Regex::new(r"^\d+\.\s*(?:[^:]+:\s*)?(.+)$") {
+            for line in response.lines() {
+                if let Some(cap) = numbered_regex.captures(line.trim()) {
+                    if let Some(command_desc) = cap.get(1) {
+                        let desc = command_desc.as_str().trim();
+                        // Extract the actual command from the description
+                        if let Some(cmd) = self.extract_command_from_description(desc) {
+                            commands.push(cmd);
+                        }
+                    }
+                }
+            }
+        }
+
         // Extract from code blocks
         if let Ok(code_block_regex) = Regex::new(r"```(?:bash|sh|shell)?\n([^`]+)```") {
             for cap in code_block_regex.captures_iter(response) {
@@ -629,12 +758,13 @@ impl ShyRepl {
             }
         }
 
-        // Extract from inline code
+        // Extract from inline code - use extended matching for complex commands
         if let Ok(inline_code_regex) = Regex::new(r"`([^`]+)`") {
             for cap in inline_code_regex.captures_iter(response) {
                 if let Some(command) = cap.get(1) {
                     let cmd = command.as_str().trim();
-                    if Self::looks_like_command(cmd) {
+                    // Use extended matching to capture complex commands with pipes
+                    if Self::looks_like_command_extended(cmd) {
                         commands.push(cmd.to_string());
                     }
                 }
@@ -646,6 +776,49 @@ impl ShyRepl {
         self.last_suggested_commands = commands;
 
         // Commands will be shown in the interactive menu
+    }
+
+    fn extract_command_from_description(&self, description: &str) -> Option<String> {
+        use regex::Regex;
+        
+        // First, try to extract commands from backticks within the description
+        if let Ok(backtick_regex) = Regex::new(r"`([^`]+)`") {
+            for cap in backtick_regex.captures_iter(description) {
+                if let Some(cmd_match) = cap.get(1) {
+                    let potential_cmd = cmd_match.as_str().trim();
+                    if Self::looks_like_command_extended(potential_cmd) {
+                        return Some(potential_cmd.to_string());
+                    }
+                }
+            }
+        }
+        
+        // Look for patterns like "using curl..." or "with command xyz"
+        let patterns = [
+            r"(?:using|with|run|execute)\s+(.+?)(?:\s+(?:to|and|then|:|$))",
+            r":\s*(.+?)(?:\s*$)",
+            r"^(.+?)(?:\s+(?:to|and|then|:))",
+        ];
+        
+        for pattern in &patterns {
+            if let Ok(regex) = Regex::new(pattern) {
+                if let Some(cap) = regex.captures(description) {
+                    if let Some(cmd_match) = cap.get(1) {
+                        let potential_cmd = cmd_match.as_str().trim();
+                        if Self::looks_like_command_extended(potential_cmd) {
+                            return Some(potential_cmd.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        
+        // If no pattern matched, check if the entire description looks like a command
+        if Self::looks_like_command_extended(description) {
+            return Some(description.to_string());
+        }
+        
+        None
     }
 
     fn display_interactive_commands(&self) {
@@ -765,6 +938,41 @@ impl ShyRepl {
             r"^(sudo|su|chmod|chown|ps|kill|top|htop|df|du|free|mount|umount)",
             r"^(systemctl|service|journalctl|crontab|at|nohup|screen|tmux)",
             r"^(vim|nano|emacs|code|subl)",
+            r"^[a-zA-Z0-9_-]+\s+", // Generic command with arguments
+        ];
+
+        command_patterns
+            .iter()
+            .any(|pattern| regex::Regex::new(pattern).is_ok_and(|re| re.is_match(text)))
+    }
+
+    fn looks_like_command_extended(text: &str) -> bool {
+        let text = text.trim();
+
+        // Skip if it's too long (probably not a single command)
+        if text.len() > 500 {
+            return false;
+        }
+
+        // Skip if it contains newlines (multi-line, probably not a single command)
+        if text.contains('\n') {
+            return false;
+        }
+
+        // Empty or too short
+        if text.len() < 3 {
+            return false;
+        }
+
+        // Extended command patterns that include pipes and complex commands
+        let command_patterns = [
+            r"^(ls|cd|pwd|mkdir|rmdir|rm|cp|mv|cat|less|more|head|tail|grep|find|which|whereis)",
+            r"^(git|npm|yarn|cargo|pip|docker|kubectl|ssh|scp|rsync|curl|wget)",
+            r"^(sudo|su|chmod|chown|ps|kill|top|htop|df|du|free|mount|umount)",
+            r"^(systemctl|service|journalctl|crontab|at|nohup|screen|tmux)",
+            r"^(vim|nano|emacs|code|subl)",
+            r"^[a-zA-Z0-9_-]+.*\|.*[a-zA-Z0-9_-]+", // Commands with pipes
+            r"^[a-zA-Z0-9_-]+\s+.*-[a-zA-Z]", // Commands with flags
             r"^[a-zA-Z0-9_-]+\s+", // Generic command with arguments
         ];
 
